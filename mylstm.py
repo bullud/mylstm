@@ -65,7 +65,8 @@ def init_params(options):
 
 
 
-def build_model():
+def build_model(options):
+
     # define switch for dropout, use or not use
     use_dropout = theano.shared(numpy_floatX(0.))
 
@@ -73,6 +74,10 @@ def build_model():
     x = T.matrix('x', dtype='int64')
     mask = T.matrix('mask', dtype=config.floatX)
     y = T.vector('y', dtype='int64')
+
+    #define model params
+    params = init_params(options)
+
 
 
     return None

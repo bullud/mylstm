@@ -376,7 +376,9 @@ def build_model(tparams, options):
     y = tensor.vector('y', dtype='int64')
 
     n_timesteps = x.shape[0]
+    #n_timesteps = 100
     n_samples = x.shape[1]
+    #n_samples = 16
 
     emb = tparams['Wemb'][x.flatten()].reshape([n_timesteps,
                                                 n_samples,
