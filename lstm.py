@@ -524,7 +524,7 @@ def train_lstm(
         weight_decay *= decay_c
         cost += weight_decay
 
-    f_cost = theano.function([x, mask, y], cost, name='f_cost')
+    #f_cost = theano.function([x, mask, y], cost, name='f_cost')
 
     grads = tensor.grad(cost, wrt=list(tparams.values()))
     f_grad = theano.function([x, mask, y], grads, name='f_grad')

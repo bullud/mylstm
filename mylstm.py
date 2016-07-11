@@ -6,12 +6,19 @@ import numpy as np
 from collections import OrderedDict
 import imdb
 
+def numpy_floatX(data):
+    return np.asarray(data, dtype=config.floatX)
 
 def ortho_weight(ndim):
     W = np.random.randn(ndim, ndim)
     u, s, v = np.linalg.svd(W)
     return u.astype(config.floatX)
 
+def make_shared(params):
+    sparams = OrderedDict()
+    for kk, pp in params.items():
+        sparams[kk] = theano.shared(params[kk], name=kk)
+    return sparams
 
 def init_lstm_param(options, params):
     """
@@ -54,9 +61,20 @@ def init_params(options):
                                          options['ydim']).astype(config.floatX)
     params['b'] = np.zeros((options['ydim'],)).astype(config.floatX)
 
-    return params
+    return make_shared(params)
+
+
 
 def build_model():
+    # define switch for dropout, use or not use
+    use_dropout = theano.shared(numpy_floatX(0.))
+
+    #define x, y and mask of a batch
+    x = T.matrix('x', dtype='int64')
+    mask = T.matrix('mask', dtype=config.floatX)
+    y = T.vector('y', dtype='int64')
+
+
     return None
 
 def train_model(
@@ -73,15 +91,13 @@ def train_model(
 
     train, valid, test = imdb.load_data(n_words=n_words, valid_portion=0.05, maxlen=maxlen)
 
-    print(len(train[0]))
-
     ydim = np.max(train[1]) + 1  #dim of the output, 0 negative 1 positive
     model_options['ydim'] = ydim
 
     print('Building model')
+    s_params = init_params(model_options)
+
     build_model()
-
-
 
 
     return None
