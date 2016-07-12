@@ -380,6 +380,15 @@ def build_model(tparams, options):
     n_samples = x.shape[1]
     #n_samples = 16
 
+    #x:
+    #sentence:[word, word, word, ...]
+    #sentence:[word, word, word, ...]
+    #sentence:[word, word, word, ...]
+    #sentence:[word, word, word, ...]
+    #...
+
+    #tparams['Wemb'][x.flatten()] - >
+    #[[s1_w1_v1, s1_w1_v2, s1_w1_v3,..., s2_w1_v1, s2_w1_v2, s2_w1_v3, s3_w1_v1, s3_w1_v2, s3_w1_v3, ..., ]
     emb = tparams['Wemb'][x.flatten()].reshape([n_timesteps,
                                                 n_samples,
                                                 options['dim_proj']])
