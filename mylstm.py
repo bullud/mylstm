@@ -63,10 +63,54 @@ def init_params(options):
 
     return make_shared(params)
 
+def lstm_layer(sparams, state_below, options, mask=None):
+    nsteps = state_below.shape[0]
+    if state_below.ndim == 3:
+        n_samples = state_below.shape[1]
+    else:
+        n_samples = 1
 
+    assert mask is not None
+
+    def _slice(_x, n, dim):
+        if _x.ndim == 3:
+            return _x[:, :, n * dim:(n + 1) * dim]
+        return _x[:, n * dim:(n + 1) * dim]
+
+    def _step(m_, x_, h_, c_):
+        preact = T.dot(h_, sparams['lstm_U'])
+        preact += x_
+
+        i = T.nnet.sigmoid(_slice(preact, 0, options['hidden_dim']))
+        f = T.nnet.sigmoid(_slice(preact, 1, options['hidden_dim']))
+        o = T.nnet.sigmoid(_slice(preact, 2, options['hidden_dim']))
+        c = T.tanh(_slice(preact, 3, options['hidden_dim']))
+
+        c = f * c_ + i * c
+        c = m_[:, None] * c + (1. - m_)[:, None] * c_
+
+        h = o * T.tanh(c)
+        h = m_[:, None] * h + (1. - m_)[:, None] * h_
+
+        return h, c
+
+    state_below = (T.dot(state_below, sparams['lstm_W']) +
+                   sparams['lstm_b'])
+
+    hidden_dim = options['hidden_dim']
+    rval, updates = theano.scan(_step,
+                                sequences=[mask, state_below],
+                                outputs_info=[T.alloc(numpy_floatX(0.),
+                                                           n_samples,
+                                                           hidden_dim),
+                                              T.alloc(numpy_floatX(0.),
+                                                           n_samples,
+                                                           hidden_dim)],
+                                name='lstm_layers',
+                                n_steps=nsteps)
+    return rval[0]
 
 def build_model(options):
-
     # define switch for dropout, use or not use
     use_dropout = theano.shared(numpy_floatX(0.))
 
@@ -78,8 +122,25 @@ def build_model(options):
     #define model params
     params = init_params(options)
 
+    n_timesteps = x.shape[0]
+    n_samples = x.shape[1]
 
+    #x:
+    #s1_w1,  s2_w1,  s3_w1, ...
+    #s1_w2,  s2_w2,  s3_w2, ...
+    #s1_w3,  s2_w3,  s3_w3, ...
+    #s1_w4,  s2_w4,  s3_w4, ...
+    #...
 
+    #tparams['Wemb'][x.flatten()] - >
+    #[[s1_w1_v1, s1_w1_v2, s1_w1_v3,..., s2_w1_v1, s2_w1_v2, s2_w1_v3, s3_w1_v1, s3_w1_v2, s3_w1_v3, ..., ]
+    emb = params['Wemb'][x.flatten()].reshape([n_timesteps,
+                                               n_samples,
+                                               options['hidden_dim']])
+
+    proj = get_layer(options['encoder'])[1](tparams, emb, options,
+                                            prefix=options['encoder'],
+                                            mask=mask)
     return None
 
 def train_model(

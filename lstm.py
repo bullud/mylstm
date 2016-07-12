@@ -376,15 +376,14 @@ def build_model(tparams, options):
     y = tensor.vector('y', dtype='int64')
 
     n_timesteps = x.shape[0]
-    #n_timesteps = 100
     n_samples = x.shape[1]
-    #n_samples = 16
+
 
     #x:
-    #sentence:[word, word, word, ...]
-    #sentence:[word, word, word, ...]
-    #sentence:[word, word, word, ...]
-    #sentence:[word, word, word, ...]
+    #s1_w1,  s2_w1,  s3_w1, ...
+    #s1_w2,  s2_w2,  s3_w2, ...
+    #s1_w3,  s2_w3,  s3_w3, ...
+    #s1_w4,  s2_w4,  s3_w4, ...
     #...
 
     #tparams['Wemb'][x.flatten()] - >
@@ -578,7 +577,7 @@ def train_lstm(
 
                 # Select the random examples for this minibatch
                 y = [train[1][t] for t in train_index]
-                x = [train[0][t]for t in train_index]
+                x = [train[0][t] for t in train_index]
 
                 # Get the data in numpy.ndarray format
                 # This swap the axis!
