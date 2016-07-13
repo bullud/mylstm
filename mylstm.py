@@ -64,14 +64,6 @@ def init_params(options):
     return make_shared(params)
 
 def lstm_layer(sparams, state_below, options, mask=None):
-    nsteps = state_below.shape[0]
-    if state_below.ndim == 3:
-        n_samples = state_below.shape[1]
-    else:
-        n_samples = 1
-
-    assert mask is not None
-
     def _slice(_x, n, dim):
         if _x.ndim == 3:
             return _x[:, :, n * dim:(n + 1) * dim]
@@ -86,7 +78,7 @@ def lstm_layer(sparams, state_below, options, mask=None):
         o = T.nnet.sigmoid(_slice(preact, 2, options['hidden_dim']))
         c = T.tanh(_slice(preact, 3, options['hidden_dim']))
 
-        c = f * c_ + i * c
+        c = i * c + f * c_
         c = m_[:, None] * c + (1. - m_)[:, None] * c_
 
         h = o * T.tanh(c)
@@ -94,8 +86,15 @@ def lstm_layer(sparams, state_below, options, mask=None):
 
         return h, c
 
-    state_below = (T.dot(state_below, sparams['lstm_W']) +
-                   sparams['lstm_b'])
+    nsteps = state_below.shape[0]
+    if state_below.ndim == 3:
+        n_samples = state_below.shape[1]
+    else:
+        n_samples = 1
+
+    assert mask is not None
+
+    state_below = (T.dot(state_below, sparams['lstm_W']) + sparams['lstm_b'])
 
     hidden_dim = options['hidden_dim']
     rval, updates = theano.scan(_step,
