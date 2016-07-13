@@ -2,9 +2,12 @@ import theano
 import theano.tensor as T
 from theano import config
 import numpy as np
-
+from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 from collections import OrderedDict
 import imdb
+
+SEED = 123
+np.random.seed(SEED)
 
 def numpy_floatX(data):
     return np.asarray(data, dtype=config.floatX)
@@ -59,9 +62,18 @@ def init_params(options):
     # classifier
     params['U'] = 0.01 * np.random.randn(options['hidden_dim'],
                                          options['ydim']).astype(config.floatX)
-    params['b'] = np.zeros((options['ydim'],)).astype(config.floatX)
+    params['b'] = np.zeros((options['ydim'],)).astype(config.floatX) #row vector
 
     return make_shared(params)
+
+def dropout_layer(state_before, use_noise, trng):
+    hidden = T.switch(use_noise,
+                      (state_before *
+                       trng.binomial(state_before.shape,
+                                   p=0.5, n=1,
+                                   dtype=state_before.dtype)),
+                       state_before * 0.5)
+    return hidden
 
 def lstm_layer(sparams, state_below, options, mask=None):
     def _slice(_x, n, dim):
@@ -79,6 +91,7 @@ def lstm_layer(sparams, state_below, options, mask=None):
         c = T.tanh(_slice(preact, 3, options['hidden_dim']))
 
         c = i * c + f * c_
+        #m_[:, None] change row to col
         c = m_[:, None] * c + (1. - m_)[:, None] * c_
 
         h = o * T.tanh(c)
@@ -111,7 +124,7 @@ def lstm_layer(sparams, state_below, options, mask=None):
 
 def build_model(options):
     # define switch for dropout, use or not use
-    use_dropout = theano.shared(numpy_floatX(0.))
+    use_noise = theano.shared(numpy_floatX(0.))
 
     #define x, y and mask of a batch
     x = T.matrix('x', dtype='int64')
@@ -137,10 +150,31 @@ def build_model(options):
                                                n_samples,
                                                options['hidden_dim']])
 
-    proj = get_layer(options['encoder'])[1](tparams, emb, options,
-                                            prefix=options['encoder'],
-                                            mask=mask)
-    return None
+    proj = lstm_layer(params, emb, options, mask=mask)
+
+
+    #compute mean pooling
+    proj = (proj * mask[:, :, None]).sum(axis=0)
+    proj = proj / mask.sum(axis=0)[:, None]
+
+    trng = RandomStreams(SEED)
+    if options['use_dropout']:
+        proj = dropout_layer(proj, use_noise, trng)
+
+    #compute predited probalility
+    pred = T.nnet.softmax(T.dot(proj, params['U']) + params['b'])
+
+    f_pred_prob = theano.function([x, mask], pred, name='f_pred_prob')
+    f_pred = theano.function([x, mask], pred.argmax(axis=1), name='f_pred')
+
+    off = 1e-8
+    if pred.dtype == 'float16':
+        off = 1e-6
+
+    #define cost function
+    cost = -T.log(pred[T.arange(n_samples), y] + off).mean()
+
+    return use_noise, x, mask, y, f_pred_prob, f_pred, cost
 
 def train_model(
     hidden_dim=128, #the dim of the hidden unit, and the dim of the word embeding
