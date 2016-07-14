@@ -370,7 +370,6 @@ def build_model(tparams, options):
     # Used for dropout.
     use_noise = theano.shared(numpy_floatX(0.))
 
-    #define x, y and mask
     x = tensor.matrix('x', dtype='int64')
     mask = tensor.matrix('mask', dtype=config.floatX)
     y = tensor.vector('y', dtype='int64')
@@ -378,16 +377,6 @@ def build_model(tparams, options):
     n_timesteps = x.shape[0]
     n_samples = x.shape[1]
 
-
-    #x:
-    #s1_w1,  s2_w1,  s3_w1, ...
-    #s1_w2,  s2_w2,  s3_w2, ...
-    #s1_w3,  s2_w3,  s3_w3, ...
-    #s1_w4,  s2_w4,  s3_w4, ...
-    #...
-
-    #tparams['Wemb'][x.flatten()] - >
-    #[[s1_w1_v1, s1_w1_v2, s1_w1_v3,..., s2_w1_v1, s2_w1_v2, s2_w1_v3, s3_w1_v1, s3_w1_v2, s3_w1_v3, ..., ]
     emb = tparams['Wemb'][x.flatten()].reshape([n_timesteps,
                                                 n_samples,
                                                 options['dim_proj']])
@@ -395,16 +384,12 @@ def build_model(tparams, options):
                                             prefix=options['encoder'],
                                             mask=mask)
     if options['encoder'] == 'lstm':
-        #compute mean pooling
         proj = (proj * mask[:, :, None]).sum(axis=0)
         proj = proj / mask.sum(axis=0)[:, None]
-
     if options['use_dropout']:
         proj = dropout_layer(proj, use_noise, trng)
 
-    #compute predited probalility
     pred = tensor.nnet.softmax(tensor.dot(proj, tparams['U']) + tparams['b'])
-
 
     f_pred_prob = theano.function([x, mask], pred, name='f_pred_prob')
     f_pred = theano.function([x, mask], pred.argmax(axis=1), name='f_pred')
@@ -413,7 +398,6 @@ def build_model(tparams, options):
     if pred.dtype == 'float16':
         off = 1e-6
 
-    #define cost function
     cost = -tensor.log(pred[tensor.arange(n_samples), y] + off).mean()
 
     return use_noise, x, mask, y, f_pred_prob, f_pred, cost
@@ -517,7 +501,6 @@ def train_lstm(
     if reload_model:
         load_params('lstm_model.npz', params)
 
-    
     # This create Theano Shared Variable from the parameters.
     # Dict name (string) -> Theano Tensor Shared Variable
     # params and tparams have different copy of the weights.
@@ -527,7 +510,6 @@ def train_lstm(
     (use_noise, x, mask,
      y, f_pred_prob, f_pred, cost) = build_model(tparams, model_options)
 
-    #regulization
     if decay_c > 0.:
         decay_c = theano.shared(numpy_floatX(decay_c), name='decay_c')
         weight_decay = 0.
@@ -535,8 +517,8 @@ def train_lstm(
         weight_decay *= decay_c
         cost += weight_decay
 
-    #f_cost = theano.function([x, mask, y], cost, name='f_cost')
-    print(list(tparams.values()))
+    f_cost = theano.function([x, mask, y], cost, name='f_cost')
+
     grads = tensor.grad(cost, wrt=list(tparams.values()))
     f_grad = theano.function([x, mask, y], grads, name='f_grad')
 
@@ -547,7 +529,7 @@ def train_lstm(
     print('Optimization')
 
     kf_valid = get_minibatches_idx(len(valid[0]), valid_batch_size)
-    kf_test  = get_minibatches_idx(len(test[0]), valid_batch_size)
+    kf_test = get_minibatches_idx(len(test[0]), valid_batch_size)
 
     print("%d train examples" % len(train[0]))
     print("%d valid examples" % len(valid[0]))
@@ -578,7 +560,7 @@ def train_lstm(
 
                 # Select the random examples for this minibatch
                 y = [train[1][t] for t in train_index]
-                x = [train[0][t] for t in train_index]
+                x = [train[0][t]for t in train_index]
 
                 # Get the data in numpy.ndarray format
                 # This swap the axis!
@@ -593,11 +575,9 @@ def train_lstm(
                     print('bad cost detected: ', cost)
                     return 1., 1., 1.
 
-                #display info
                 if numpy.mod(uidx, dispFreq) == 0:
                     print('Epoch ', eidx, 'Update ', uidx, 'Cost ', cost)
 
-                #save model
                 if saveto and numpy.mod(uidx, saveFreq) == 0:
                     print('Saving...')
 
@@ -609,7 +589,6 @@ def train_lstm(
                     pickle.dump(model_options, open('%s.pkl' % saveto, 'wb'), -1)
                     print('Done')
 
-                #to do validation
                 if numpy.mod(uidx, validFreq) == 0:
                     use_noise.set_value(0.)
                     train_err = pred_error(f_pred, prepare_data, train, kf)

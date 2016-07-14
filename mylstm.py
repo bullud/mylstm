@@ -122,7 +122,7 @@ def lstm_layer(sparams, state_below, options, mask=None):
                                 n_steps=nsteps)
     return rval[0]
 
-def build_model(options):
+def build_model(params, options):
     # define switch for dropout, use or not use
     use_noise = theano.shared(numpy_floatX(0.))
 
@@ -174,6 +174,11 @@ def build_model(options):
     #define cost function
     cost = -T.log(pred[T.arange(n_samples), y] + off).mean()
 
+    print("params", list(params.values()))
+
+    grads = T.grad(cost, wrt=list(params.values()))
+
+    print("end")
     return use_noise, x, mask, y, f_pred_prob, f_pred, cost
 
 def train_model(
@@ -184,6 +189,8 @@ def train_model(
     decay_c=0.,     # Weight decay for the classifier applied to the U weights.
     max_epochs=100, # The maximum number of epoch to run
     n_words=10000,  # Vocabulary size, The number of word to keep in the vocabulary.All extra words are set to unknow (1).
+    use_dropout=False,  # if False slightly faster, but worst test error
+                       # This frequently need a bigger model.
 ):
     model_options = locals().copy()
     print("model_paras", model_options)
@@ -196,7 +203,22 @@ def train_model(
     print('Building model')
     s_params = init_params(model_options)
 
-    build_model()
+    (use_noise, x, mask, y, f_pred_prob, f_pred, cost) = build_model(s_params, model_options)
+
+    #if decay_c > 0.:
+    #    decay_c = theano.shared(numpy_floatX(decay_c), name='decay_c')
+    #    weight_decay = (s_params['U'] ** 2).sum()
+    #    weight_decay *= decay_c
+    #    cost += weight_decay
+
+    print("params1", list(s_params.values()))
+
+    #grads = T.grad(cost, wrt=list(s_params.values()))
+    grads = T.grad(cost, wrt=[s_params['Wemb']])
+    #print(list(s_params.values()))
+
+    #grads = T.grad(cost, wrt=list(s_params.values()))
+    #f_grad = theano.function([x, mask, y], grads, name='f_grad')
 
 
     return None
