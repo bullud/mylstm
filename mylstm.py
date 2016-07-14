@@ -132,7 +132,7 @@ def build_model(params, options):
     y = T.vector('y', dtype='int64')
 
     #define model params
-    params = init_params(options)
+    #params = init_params(options)
 
     n_timesteps = x.shape[0]
     n_samples = x.shape[1]
@@ -174,11 +174,6 @@ def build_model(params, options):
     #define cost function
     cost = -T.log(pred[T.arange(n_samples), y] + off).mean()
 
-    print("params", list(params.values()))
-
-    grads = T.grad(cost, wrt=list(params.values()))
-
-    print("end")
     return use_noise, x, mask, y, f_pred_prob, f_pred, cost
 
 def train_model(
@@ -191,6 +186,7 @@ def train_model(
     n_words=10000,  # Vocabulary size, The number of word to keep in the vocabulary.All extra words are set to unknow (1).
     use_dropout=False,  # if False slightly faster, but worst test error
                        # This frequently need a bigger model.
+    optimizer=adadelta,  # sgd, adadelta and rmsprop available, sgd very hard to use, not recommanded (probably need momentum and decaying learning rate).
 ):
     model_options = locals().copy()
     print("model_paras", model_options)
@@ -201,27 +197,26 @@ def train_model(
     model_options['ydim'] = ydim
 
     print('Building model')
-    s_params = init_params(model_options)
+    sparams = init_params(model_options)
 
-    (use_noise, x, mask, y, f_pred_prob, f_pred, cost) = build_model(s_params, model_options)
+    (use_noise, x, mask, y, f_pred_prob, f_pred, cost) = build_model(sparams, model_options)
 
-    #if decay_c > 0.:
-    #    decay_c = theano.shared(numpy_floatX(decay_c), name='decay_c')
-    #    weight_decay = (s_params['U'] ** 2).sum()
-    #    weight_decay *= decay_c
-    #    cost += weight_decay
+    if decay_c > 0.:
+        decay_c = theano.shared(numpy_floatX(decay_c), name='decay_c')
+        weight_decay = (sparams['U'] ** 2).sum()
+        weight_decay *= decay_c
+        cost += weight_decay
 
-    print("params1", list(s_params.values()))
+    print("params1", list(sparams.values()))
 
-    #grads = T.grad(cost, wrt=list(s_params.values()))
-    grads = T.grad(cost, wrt=[s_params['Wemb']])
-    #print(list(s_params.values()))
+    grads = T.grad(cost, wrt=list(sparams.values()))
+    f_grad = theano.function([x, mask, y], grads, name='f_grad')
 
-    #grads = T.grad(cost, wrt=list(s_params.values()))
-    #f_grad = theano.function([x, mask, y], grads, name='f_grad')
+    lr = T.scalar(name='lr')
+
+    f_grad_shared, f_update = optimizer(lr, sparams, grads, x, mask, y, cost)
 
 
-    return None
 
 
 if __name__ == "__main__":
