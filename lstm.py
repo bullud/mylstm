@@ -547,7 +547,7 @@ def train_lstm(
     print('Optimization')
 
     kf_valid = get_minibatches_idx(len(valid[0]), valid_batch_size)
-    kf_test  = get_minibatches_idx(len(test[0]), valid_batch_size)
+    kf_test  = get_minibatches_idx(len(test[0]),  valid_batch_size)
 
     print("%d train examples" % len(train[0]))
     print("%d valid examples" % len(valid[0]))
