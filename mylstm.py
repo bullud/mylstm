@@ -5,6 +5,7 @@ import numpy as np
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 from collections import OrderedDict
 import imdb
+import optimizer
 
 SEED = 123
 np.random.seed(SEED)
@@ -185,8 +186,7 @@ def train_model(
     max_epochs=100, # The maximum number of epoch to run
     n_words=10000,  # Vocabulary size, The number of word to keep in the vocabulary.All extra words are set to unknow (1).
     use_dropout=False,  # if False slightly faster, but worst test error
-                       # This frequently need a bigger model.
-    optimizer=adadelta,  # sgd, adadelta and rmsprop available, sgd very hard to use, not recommanded (probably need momentum and decaying learning rate).
+                        # This frequently need a bigger model.
 ):
     model_options = locals().copy()
     print("model_paras", model_options)
@@ -214,7 +214,7 @@ def train_model(
 
     lr = T.scalar(name='lr')
 
-    f_grad_shared, f_update = optimizer(lr, sparams, grads, x, mask, y, cost)
+    f_grad_shared, f_update = optimizer.adadelta(lr, sparams, grads, x, mask, y, cost)
 
 
 
