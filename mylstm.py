@@ -1,13 +1,17 @@
+from __future__ import print_function
+import sys
+import time
 import theano
 import theano.tensor as T
 from theano import config
 import numpy as np
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
+import six.moves.cPickle as pickle
 from collections import OrderedDict
 import imdb
+import utils
 import optimizer
-import sys
-import time
+
 
 SEED = 123
 np.random.seed(SEED)
@@ -203,6 +207,24 @@ def get_minibatches_idx(n, minibatch_size, shuffle=False):
 
     return zip(range(len(minibatches)), minibatches)
 
+#compute prediction error
+def pred_error(f_pred, prepare_data, data, iterator, verbose=False):
+    """
+    Just compute the error
+    f_pred: Theano fct computing the prediction
+    prepare_data: usual prepare_data for that dataset.
+    """
+    valid_err = 0
+    for _, valid_index in iterator:
+        x, mask, y = prepare_data([data[0][t] for t in valid_index],
+                                  np.array(data[1])[valid_index],
+                                  maxlen=None)
+        preds = f_pred(x, mask)
+        targets = np.array(data[1])[valid_index]
+        valid_err += (preds == targets).sum()
+    valid_err = 1. - numpy_floatX(valid_err) / len(data[0])
+
+    return valid_err
 
 def train_model(
     hidden_dim=128, #the dim of the hidden unit, and the dim of the word embeding
@@ -211,23 +233,39 @@ def train_model(
     lrate=0.0001,   # Learning rate for sgd (not used for adadelta and rmsprop)
     valid_batch_size=64,  # The batch size used for validation/test set.
     decay_c=0.,     # Weight decay for the classifier applied to the U weights.
-    max_epochs=100, # The maximum number of epoch to run
+    max_epochs=10, # The maximum number of epoch to run
     n_words=10000,  # Vocabulary size, The number of word to keep in the vocabulary.All extra words are set to unknow (1).
-    use_dropout=False,  # if False slightly faster, but worst test error
+    use_dropout=True,  # if False slightly faster, but worst test error
                         # This frequently need a bigger model.
     validFreq=370,  # Compute the validation error after this number of update.
     saveFreq=1110,  # Save the parameters after every saveFreq updates
+    dispFreq=10,  # Display to stdout the training progress every N updates
+    patience=10,  # Number of epoch to wait before early stop if no progress
+    saveto='lstm_model_my.npz',  # The best model will be saved there
+    test_size=-1,  # If >0, we keep only this number of test example.
+    reload_model=None,  # Path to a saved model we want to start from.
 ):
     model_options = locals().copy()
     print("model_paras", model_options)
 
     train, valid, test = imdb.load_data(n_words=n_words, valid_portion=0.05, maxlen=maxlen)
+    if test_size > 0:
+        # The test set is sorted by size, but we want to keep random
+        # size example.  So we must select a random selection of the
+        # examples.
+        idx = np.arange(len(test[0]))
+        np.random.shuffle(idx)
+        idx = idx[:test_size]
+        test = ([test[0][n] for n in idx], [test[1][n] for n in idx])
 
     ydim = np.max(train[1]) + 1  #dim of the output, 0 negative 1 positive
     model_options['ydim'] = ydim
 
     print('Building model')
     sparams = init_params(model_options)
+
+    if reload_model:
+        load_params('lstm_model.npz', params)
 
     (use_noise, x, mask, y, f_pred_prob, f_pred, cost) = build_model(sparams, model_options)
 
@@ -237,7 +275,6 @@ def train_model(
         weight_decay *= decay_c
         cost += weight_decay
 
-    print("params1", list(sparams.values()))
 
     grads = T.grad(cost, wrt=list(sparams.values()))
     f_grad = theano.function([x, mask, y], grads, name='f_grad')
@@ -283,54 +320,59 @@ def train_model(
                 # Get the data in numpy.ndarray format
                 # This swap the axis!
                 # Return something of shape (minibatch maxlen, n samples)
-                x, mask, y = prepare_data(x, y)
+                x, mask, y = imdb.prepare_data(x, y)
                 n_samples += x.shape[1]
 
                 cost = f_grad_shared(x, mask, y)
                 f_update(lrate)
 
-                if numpy.isnan(cost) or numpy.isinf(cost):
+                if np.isnan(cost) or np.isinf(cost):
                     print('bad cost detected: ', cost)
                     return 1., 1., 1.
 
                 #display info
-                if numpy.mod(uidx, dispFreq) == 0:
+                if np.mod(uidx, dispFreq) == 0:
                     print('Epoch ', eidx, 'Update ', uidx, 'Cost ', cost)
 
                 #save model
-                if saveto and numpy.mod(uidx, saveFreq) == 0:
+                if saveto and np.mod(uidx, saveFreq) == 0:
                     print('Saving...')
 
                     if best_p is not None:
                         params = best_p
                     else:
-                        params = unzip(tparams)
-                    numpy.savez(saveto, history_errs=history_errs, **params)
+                        params = utils.unzip(sparams)
+                    np.savez(saveto, history_errs=history_errs, **params)
                     pickle.dump(model_options, open('%s.pkl' % saveto, 'wb'), -1)
                     print('Done')
 
+
                 #to do validation
-                if numpy.mod(uidx, validFreq) == 0:
+                if np.mod(uidx, validFreq) == 0:
                     use_noise.set_value(0.)
-                    train_err = pred_error(f_pred, prepare_data, train, kf)
-                    valid_err = pred_error(f_pred, prepare_data, valid,
-                                           kf_valid)
-                    test_err = pred_error(f_pred, prepare_data, test, kf_test)
+
+                    #train error
+                    train_err = pred_error(f_pred, imdb.prepare_data, train, kf)
+
+                    #valid error
+                    valid_err = pred_error(f_pred, imdb.prepare_data, valid, kf_valid)
+
+                    #test error
+                    test_err = pred_error(f_pred, imdb.prepare_data, test, kf_test)
 
                     history_errs.append([valid_err, test_err])
 
                     if (best_p is None or
-                        valid_err <= numpy.array(history_errs)[:,
+                        valid_err <= np.array(history_errs)[:,
                                                                0].min()):
 
-                        best_p = unzip(tparams)
+                        best_p = utils.unzip(sparams)
                         bad_counter = 0
 
-                    print( ('Train ', train_err, 'Valid ', valid_err,
-                           'Test ', test_err) )
+                    print( ('Train ', train_err, 'Valid ', valid_err, 'Test ', test_err) )
 
                     if (len(history_errs) > patience and
-                        valid_err >= numpy.array(history_errs)[:-patience,
+                        valid_err >= np.array(history_errs)[:-patience,
                                                                0].min()):
                         bad_counter += 1
                         if bad_counter > patience:
@@ -348,19 +390,19 @@ def train_model(
 
     end_time = time.time()
     if best_p is not None:
-        zipp(best_p, tparams)
+        utils.zipp(best_p, sparams)
     else:
-        best_p = unzip(tparams)
+        best_p = utils.unzip(sparams)
 
     use_noise.set_value(0.)
     kf_train_sorted = get_minibatches_idx(len(train[0]), batch_size)
-    train_err = pred_error(f_pred, prepare_data, train, kf_train_sorted)
-    valid_err = pred_error(f_pred, prepare_data, valid, kf_valid)
-    test_err = pred_error(f_pred, prepare_data, test, kf_test)
+    train_err = pred_error(f_pred, imdb.prepare_data, train, kf_train_sorted)
+    valid_err = pred_error(f_pred, imdb.prepare_data, valid, kf_valid)
+    test_err  = pred_error(f_pred, imdb.prepare_data, test, kf_test)
 
     print( 'Train ', train_err, 'Valid ', valid_err, 'Test ', test_err )
     if saveto:
-        numpy.savez(saveto, train_err=train_err,
+        np.savez(saveto, train_err=train_err,
                     valid_err=valid_err, test_err=test_err,
                     history_errs=history_errs, **best_p)
     print('The code run for %d epochs, with %f sec/epochs' % (
@@ -370,4 +412,7 @@ def train_model(
     return train_err, valid_err, test_err
 
 if __name__ == "__main__":
-    train_model()
+    train_model(
+        max_epochs=100,
+        test_size=500,
+    )
